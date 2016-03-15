@@ -1,0 +1,7 @@
+name = Embedded Elements
+description = Embed elements into a CKEditor bodyfield.
+package = User interface
+core = 7.x
+php = 5.2
+dependencies[] = views
+dependencies[] = ckeditor

@@ -1,0 +1,28 @@
+<?php
+
+/**
+ * @file
+ * Embeds content into a CKEditor text field.
+ */
+
+/**
+ * Implements hook_wysiwyg_plugin().
+ * Adding a custom CKeditor button for adding merge codes
+ */
+
+function embedded_elements_wysiwyg_plugin($editor, $version) {
+  switch ($editor) {
+    case 'ckeditor':
+      return array(
+        'embedElement' => array(
+          'path' => drupal_get_path('module', 'embedded_elements') . '/ckeditor_plugins/',
+          'filename' => 'plugin.js',
+          'buttons' => array(
+            'embedElementAdd' => t('Do something awesome'),
+          ),
+          'load' => TRUE,
+        ),
+      );
+      break;
+  }
+}
