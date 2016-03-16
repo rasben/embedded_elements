@@ -73,12 +73,11 @@ function embedded_elements_admin() {
 
       foreach ($field_info as $field_info_selected) {
         // If the widget type starts with "text_textarea" (13 characters), then that's what we want.
-
         if
-          ((!isset($fields_allowed[$field_info_selected['field_id']])) &&
+          ((!isset($fields_allowed[$field_info_selected['field_name']])) &&
           (substr($field_info_selected['widget']['type'], 0, 13) == 'text_textarea')) {
 
-          $fields_allowed[$field_info_selected['field_id']] = $field_info_selected['field_name'];
+          $fields_allowed[$field_info_selected['field_name']] = $field_info_selected['field_name'];
         }
       }
     }
@@ -117,11 +116,10 @@ function embedded_elements_admin_validate($form, &$form_state) {
   /*
    * Part 2: Fields
    */
-
   $embedded_elements_fields_value = [];
 
   foreach ($form_state['values']['embedded_elements_fields'] as $ee_f_key => $ee_f_value) {
-    if ($ee_f_value != 0) {
+    if ($ee_f_value !== 0) {
       $embedded_elements_fields_value[$ee_f_key] = $ee_f_value;
     }
   }
@@ -149,3 +147,31 @@ function embedded_elements_menu() {
   return $items;
 }
 
+/**
+ * Implements hook_node_submit().
+ * Manipulating the textarea contents so we can embed the actual elements.
+ */
+function embedded_elements_node_submit($node, $form, &$form_state) {
+  $allowed_contenttypes = variable_get('embedded_elements_contenttypes');
+
+  if (in_array($form_state['values']['type'], $allowed_contenttypes)):
+
+
+    $allowed_fields = variable_get('embedded_elements_fields');
+
+    // todo: Optimize this.
+    foreach ($allowed_fields as $allowed_field => $allowed_field_key) {
+      if
+      (isset($form_state['values'][$allowed_field]) &&
+      !empty($form_state['values'][$allowed_field][LANGUAGE_NONE][0]['value'])) {
+
+
+        $raw_haystack = $form_state['values'][$allowed_field][LANGUAGE_NONE][0]['value'];
+
+        dpm($raw_haystack);
+
+      }
+    }
+
+  endif; //End content type check
+}
