@@ -13,7 +13,15 @@ define('EMBEDDED_ELEMENTS_SOURCES_ALLOWED', serialize([
   'views' => t('View panes'),
   'blocks' => t('Blocks')
 ]));
-
+define('EMBEDDED_ELEMENTS_MERGECODE_DATA_VAR_PREFIX', 'embedded_elements_mcdata_');
+define('EMBEDDED_ELEMENTS_MERGECODE_SETTINGS', serialize([
+  'name' => '',
+  'text' => '',
+  'view' => '',
+  'template' => '',
+  'block' => '',
+  'source' => ''
+]));
 
 /**
  * Implements hook_wysiwyg_plugin().
@@ -163,8 +171,6 @@ function embedded_elements_admin_validate($form, &$form_state) {
   }
 
   variable_set('embedded_elements_sources', json_encode($embedded_elements_sources_value));
-
-
 }
 
 /**
@@ -175,7 +181,7 @@ function embedded_elements_menu() {
   $items = array();
 
   $items['admin/settings/embedded_elements'] = array(
-    'title' => 'Embedded Elements module settings',
+    'title' => t('Embedded Elements - Global Settings'),
     'description' => '',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('embedded_elements_admin'),
@@ -183,8 +189,8 @@ function embedded_elements_menu() {
     'type' => MENU_NORMAL_ITEM,
    );
 
-  $items['admin/settings/embedded_elements/mergecodes'] = array(
-    'title' => 'Embedded Elements mergecodes',
+  $items['admin/settings/embedded_elements/mergecodes/creator'] = array(
+    'title' => t('Embedded Elements - Create new mergecode'),
     'description' => '',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('embedded_elements_mergecodes_form'),
@@ -192,6 +198,14 @@ function embedded_elements_menu() {
     'type' => MENU_NORMAL_ITEM,
    );
 
+  $items['admin/settings/embedded_elements/mergecodes'] = array(
+    'title' => t('Embedded Elements - Select a mergecode to edit'),
+    'description' => '',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('embedded_elements_mergecodes_select_form'),
+    'access arguments' => array('administer embedded elements mergecodes'),
+    'type' => MENU_NORMAL_ITEM,
+   );
 
   return $items;
 }
@@ -232,6 +246,62 @@ function embedded_elements_node_submit($node, $form, &$form_state) {
 
 /**
  * Implements hook_form().
+ * A form for selecting different mergecodes.
+ */
+function embedded_elements_mergecodes_select_form($form,&$form_submit) {
+  // Move this into a helper function if you ever use it again
+  $query = db_select('variable', 'v');
+  $query->fields('v', array('name'));
+  $query->condition('name', EMBEDDED_ELEMENTS_MERGECODE_DATA_VAR_PREFIX . '%', 'LIKE');
+  $results = $query->execute()->fetchAll();
+
+  $existing_mergecodes = [];
+
+  foreach ($results as $result) {
+    // As variable_get already does some kind of JSON magic, we'll have to use that.
+    $values = json_decode(variable_get($result->name));
+    $name = str_replace(EMBEDDED_ELEMENTS_MERGECODE_DATA_VAR_PREFIX, '', $result->name);
+
+
+    $existing_mergecodes[$name] = $values->name;
+  }
+
+
+  $form['mergecode'] = array(
+    '#type' => 'select',
+    '#title' => t('Select a mergecode to edit'),
+    '#options' => $existing_mergecodes,
+  );
+
+
+  $form['submit_button'] = array(
+    '#type' => 'submit',
+    '#value' => t('Select'),
+  );
+
+
+  return $form;
+
+}
+
+/**
+ * Implements hook_submit().
+ */
+function embedded_elements_mergecodes_select_form_submit($form_id, &$form_state) {
+  $mergecode = $form_state['values']['mergecode'];
+
+  $form_state['redirect'] = array(
+    '/admin/settings/embedded_elements/mergecodes/creator',
+    array(
+      'query' => array(
+        'mergecode' => $mergecode
+      )
+    )
+  );
+}
+
+/**
+ * Implements hook_form().
  * A form for defining different merge codes and their content.
  */
 function embedded_elements_mergecodes_form($form,&$form_submit) {
@@ -252,152 +322,79 @@ function embedded_elements_mergecodes_form($form,&$form_submit) {
   $views_allowed = [];
   $blocks_allowed = [];
 
+  $parameters = drupal_get_query_parameters();
 
-  /*
-   * Form elements for existing mergecodes.
-   */
-  foreach ($existing_mergecodes as $mergecode):
+  if (isset($parameters['mergecode'])) {
+    $mergecode = $parameters['mergecode'];
+    $mergecode_settings = variable_get(EMBEDDED_ELEMENTS_MERGECODE_DATA_VAR_PREFIX . $parameters['mergecode']);
+    $mergecode_settings = json_decode($mergecode_settings, TRUE);
+  }
+  else {
+    $mergecode = 'NEW';
+    $mergecode_settings = unserialize(EMBEDDED_ELEMENTS_MERGECODE_SETTINGS);
+  }
 
-    if (!empty($mergecode)) {
-      $mergecode_settings = json_decode($mergecode);
+  $form[$mergecode]['identifier'] = array(
+    '#title' => t('Identifier'),
+    '#type' => 'textfield',
+    '#description' => t('This code may be used in a textarea with [EE your_merge_code EE]. Only alphanumerical characters and underscores are allowed and will automatically be converted. If you do not write anything, the system will generate the merge code for you based on the name.'),
+    '#prefix' => '<h2>' . t('Create new mergecode') . '</h2>',
+    '#default_value' => $mergecode
+  );
+
+  $form[$mergecode]['name'] = array(
+    '#title' => t('Name'),
+    '#type' => 'textfield',
+    '#required' => TRUE,
+    '#default_value' => $mergecode_settings['name']
+  );
+
+  $form[$mergecode]['source'] = array(
+    '#type' => 'select',
+    '#title' => t('Source'),
+    '#options' => $sources_allowed,
+    '#default_value' => $mergecode_settings['source']
+  );
+
+
+  foreach ($sources_allowed as $source => $source_name):
+    if ($source == 'blocks') {
+      $form[$mergecode]['block'] = array(
+        '#type' => 'select',
+        '#title' => t('Block to display'),
+        '#default_value' => $mergecode_settings['block'],
+        '#options' => $blocks_allowed,
+      );
     }
-    else {
-      $mergecode_settings = [];
+
+    else if ($source == 'views') {
+      $form[$mergecode]['view'] = array(
+        '#type' => 'select',
+        '#title' => t('Viewpane to display'),
+        '#default_value' => $mergecode_settings['view'],
+        '#options' => $views_allowed,
+      );
     }
 
-    // This is just to show the user what's going on.
-    // It wont be used in any kind of submit.
-    $form[$mergecode]['identifier'] = array(
-      '#title' => t('Identifier'),
-      '#type' => 'textfield',
-      '#required' => TRUE,
-      '#default_value' => $mergecode,
-      '#attributes' => array('readonly' => 'readonly'),
-      '#description' => t('This code may be used in a textarea with') . ' [EE ' . $mergecode . ' EE]',
-      '#prefix' => '<h2>' . t('Existing mergecode') . ': ' . $mergecode_settings['name'] . '</h2>',
+    else if ($source == 'text') {
+      $form[$mergecode]['text'] = array(
+        '#type' => 'textarea',
+        '#default_value' => $mergecode_settings['text'],
+        '#title' => t('Custom text to display'),
+      );
+    }
 
-    );
+    else if ($source == 'templates') {
+      $form[$mergecode]['template'] = array(
+        '#type' => 'select',
+        '#title' => 'Custom template to display',
+        '#options' => $templates_allowed,
+        '#default_value' => $mergecode_settings['template'],
+        '#description' => t('Detected templates that are made for embeddeding. Put your template (.tpl.php) files in your theme folder, in the following structure: [themename]/templates/embedded_elements.')
+      );
+    }
 
-    $form[$mergecode]['name'] = array(
-      '#title' => t('Name'),
-      '#type' => 'textfield',
-      '#required' => TRUE,
-      '#default_value' => $mergecode_settings['name']
-    );
-
-    $form[$mergecode]['embedded_elements_source'] = array(
-      '#type' => 'select',
-      '#title' => t('Source'),
-      '#default_value' => $mergecode_settings['source'],
-      '#options' => $sources_allowed,
-    );
-
-
-    // todo: Should this be a helper function? It will be used once more.
-    foreach ($sources_allowed as $source):
-
-      if ($source == 'blocks') {
-        $form[$mergecode]['embedded_elements_block'] = array(
-          '#type' => 'select',
-          '#title' => t('Block to display'),
-          '#default_value' => $mergecode_settings['block'],
-          '#options' => $blocks_allowed,
-        );
-      }
-
-      else if ($source == 'views') {
-        $form[$mergecode]['embedded_elements_view'] = array(
-          '#type' => 'select',
-          '#title' => t('Viewpane to display'),
-          '#default_value' => $mergecode_settings['view'],
-          '#options' => $views_allowed,
-        );
-      }
-
-      else if ($source == 'text') {
-        $form[$mergecode]['embedded_elements_text'] = array(
-          '#type' => 'text_format',
-          '#format' => 'full_html',
-          '#title' => t('Custom text to display'),
-          '#default_value' => $mergecode_settings['text'],
-        );
-      }
-
-      else if ($source == 'template') {
-        $form[$mergecode]['embedded_elements_template'] = array(
-          '#type' => 'select',
-          '#title' => t('Custom template to display'),
-          '#default_value' => $mergecode_settings['template'],
-          '#options' => $templates_allowed,
-          '#description' => t('Detected templates that are made for embeddeding. Put your template (.tpl.php) files in your theme folder, in the following structure: [themename]/templates/embedded_elements.')
-        );
-      }
-
-    endforeach; //Ends looping through souces_allowed
-
-  endforeach; //Ends looping through existing_mergecodes
-
-  /*
-   * Form elements for a new merge code.
-   */
-
-    $form['NEW']['identifier'] = array(
-      '#title' => t('Identifier'),
-      '#type' => 'textfield',
-      '#description' => t('This code may be used in a textarea with [EE your_merge_code EE]. Only alphanumerical characters and underscores are allowed and will automatically be converted. If you do not write anything, the system will generate the merge code for you based on the name.'),
-      '#prefix' => '<h2>' . t('Create new mergecode') . '</h2>',
-
-    );
-
-    $form['NEW']['name'] = array(
-      '#title' => t('Name'),
-      '#type' => 'textfield',
-      '#required' => TRUE,
-    );
-
-    $form['NEW']['embedded_elements_source'] = array(
-      '#type' => 'select',
-      '#title' => t('Source'),
-      '#options' => $sources_allowed,
-    );
-
-
-    foreach ($sources_allowed as $source => $source_name):
-      if ($source == 'blocks') {
-        $form['NEW']['embedded_elements_block'] = array(
-          '#type' => 'select',
-          '#title' => t('Block to display'),
-          '#options' => $blocks_allowed,
-        );
-      }
-
-      else if ($source == 'views') {
-        $form['NEW']['embedded_elements_view'] = array(
-          '#type' => 'select',
-          '#title' => t('Viewpane to display'),
-          '#options' => $views_allowed,
-        );
-      }
-
-      else if ($source == 'text') {
-        $form['NEW']['embedded_elements_text'] = array(
-          '#type' => 'textarea',
-          '#title' => t('Custom text to display'),
-        );
-      }
-
-      else if ($source == 'template') {
-        $form['NEW']['embedded_elements_template'] = array(
-          '#type' => 'select',
-          '#title' => 'Custom template to display',
-          '#options' => $templates_allowed,
-          '#description' => t('Detected templates that are made for embeddeding. Put your template (.tpl.php) files in your theme folder, in the following structure: [themename]/templates/embedded_elements.')
-        );
-      }
-
-    endforeach; //Ends looping through souces_allowed
-
-
+  endforeach; //Ends looping through souces_allowed
 
   $form['submit_button'] = array(
     '#type' => 'submit',
@@ -405,4 +402,39 @@ function embedded_elements_mergecodes_form($form,&$form_submit) {
   );
 
   return $form;
+}
+
+
+/**
+ * Implements hook_form_validate().
+ * Manipulating and checking data before it's sent.
+ */
+function embedded_elements_mergecodes_form_validate($form, &$form_state) {
+  $settings = unserialize(EMBEDDED_ELEMENTS_MERGECODE_SETTINGS);
+
+  $identifier = $form_state['values']['identifier'];
+  $name = $form_state['values']['name'];
+
+  if (!empty($identifier)) {
+    $identifier = preg_replace('/\s+/', '_', $identifier);
+    $identifier = preg_replace('/[^a-zA-Z0-9_]/', '', $identifier);
+  }
+
+  else {
+    $identifier = preg_replace('/\s+/', '_', $name);
+    $identifier = preg_replace('/[^a-zA-Z0-9_]/', '', $identifier);
+  }
+
+  $identifier = strtolower($identifier);
+
+  $settings['name'] = $name;
+  $settings['source'] = $form_state['values']['source'];
+  $settings['view'] = $form_state['values']['view'];
+  $settings['block'] = $form_state['values']['block'];
+  $settings['template'] = $form_state['values']['template'];
+  $settings['text'] = $form_state['values']['text'];
+
+
+
+  variable_set(EMBEDDED_ELEMENTS_MERGECODE_DATA_VAR_PREFIX . $identifier, json_encode($settings));
 }
