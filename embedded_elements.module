@@ -9,7 +9,7 @@
  * Implements hook_wysiwyg_plugin().
  * Adding a custom CKeditor button for adding merge codes
  */
-
+/*
 function embedded_elements_wysiwyg_plugin($editor, $version) {
   switch ($editor) {
     case 'ckeditor':
@@ -25,4 +25,75 @@ function embedded_elements_wysiwyg_plugin($editor, $version) {
       );
       break;
   }
+}
+*/
+
+/**
+ * Implements hook_admin().
+ * Configuration page for the module.
+ */
+function embedded_elements_admin() {
+
+
+
+  // We may want to limit this function at one point, 
+  // to always exclude certain node types.
+  foreach (node_type_get_types() as $node_type) {
+    $contenttypes_allowed[$node_type->type] = $node_type->name;
+  }
+
+  $contenttypes_default = [];
+
+  // It appears that variable_get automatically decodes json. Interesting?
+  $contenttypes_currentvalue = variable_get('embedded_elements_contenttypes');
+
+  $form = array();
+  $form['embedded_elements_contenttypes'] = array(
+    '#type' => 'checkboxes',
+    '#title' => 'Allowed content types',
+    '#default_value' => $contenttypes_currentvalue,
+    '#options' => $contenttypes_allowed,
+
+  );
+
+  return system_settings_form($form);
+}
+
+/**
+ * Implements hook_admin_validate().
+ * Manipulating and checking data before it's sent.
+ */
+function embedded_elements_admin_validate($form, &$form_state) {
+  $embedded_elements_contenttypes_value = [];
+
+  foreach ($form_state['values']['embedded_elements_contenttypes'] as $ee_ct_key => $ee_ct_value) {
+    if (!empty($ee_ct_value)) {
+      $embedded_elements_contenttypes_value[$ee_ct_key] = $ee_ct_value;
+    }
+  }
+
+  variable_set('embedded_elements_contenttypes', json_encode($embedded_elements_contenttypes_value));
+}
+
+
+
+/**
+ * Implements hook_menu().
+ * Link for configuration page.
+ */
+function embedded_elements_menu() {
+  $items = array();
+
+  $items['admin/settings/embedded_elements'] = array(
+    'title' => 'Embedded Elements module settings',
+    'description' => '',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('embedded_elements_admin'),
+    'access arguments' => array('administer embedded elements settings'),
+    'type' => MENU_NORMAL_ITEM,
+   );
+
+  return $items;
+
+
 }
