@@ -33,26 +33,62 @@ function embedded_elements_wysiwyg_plugin($editor, $version) {
  * Configuration page for the module.
  */
 function embedded_elements_admin() {
+  $form = array();
 
+  /*
+   * Form part 1: Content types
+   */
 
-
-  // We may want to limit this function at one point, 
+  // We may want to limit this function at one point,
   // to always exclude certain node types.
   foreach (node_type_get_types() as $node_type) {
     $contenttypes_allowed[$node_type->type] = $node_type->name;
   }
 
-  $contenttypes_default = [];
-
   // It appears that variable_get automatically decodes json. Interesting?
   $contenttypes_currentvalue = variable_get('embedded_elements_contenttypes');
 
-  $form = array();
   $form['embedded_elements_contenttypes'] = array(
     '#type' => 'checkboxes',
     '#title' => 'Allowed content types',
     '#default_value' => $contenttypes_currentvalue,
     '#options' => $contenttypes_allowed,
+
+  );
+
+  /*
+   * Form part 2: Fields
+   */
+  $field_info_instances = field_info_instances();
+
+  $fields_allowed = [];
+
+  // It appears that variable_get automatically decodes json. Interesting?
+  $fields_currentvalue = variable_get('embedded_elements_fields');
+
+  // Gets all the fields from the allowed content types and checks if they are textareas.
+  foreach ($field_info_instances['node'] as $content_type => $field_info) {
+
+    if ($contenttypes_currentvalue[$content_type] !== 0) {
+
+      foreach ($field_info as $field_info_selected) {
+        // If the widget type starts with "text_textarea" (13 characters), then that's what we want.
+
+        if
+          ((!isset($fields_allowed[$field_info_selected['field_id']])) &&
+          (substr($field_info_selected['widget']['type'], 0, 13) == 'text_textarea')) {
+
+          $fields_allowed[$field_info_selected['field_id']] = $field_info_selected['field_name'];
+        }
+      }
+    }
+  }
+
+  $form['embedded_elements_fields'] = array(
+    '#type' => 'checkboxes',
+    '#title' => 'Allowed fields',
+    '#default_value' => $fields_currentvalue,
+    '#options' => $fields_allowed,
 
   );
 
@@ -64,6 +100,10 @@ function embedded_elements_admin() {
  * Manipulating and checking data before it's sent.
  */
 function embedded_elements_admin_validate($form, &$form_state) {
+
+  /*
+   * Part 1: Content types
+   */
   $embedded_elements_contenttypes_value = [];
 
   foreach ($form_state['values']['embedded_elements_contenttypes'] as $ee_ct_key => $ee_ct_value) {
@@ -73,9 +113,22 @@ function embedded_elements_admin_validate($form, &$form_state) {
   }
 
   variable_set('embedded_elements_contenttypes', json_encode($embedded_elements_contenttypes_value));
+
+  /*
+   * Part 2: Fields
+   */
+
+  $embedded_elements_fields_value = [];
+
+  foreach ($form_state['values']['embedded_elements_fields'] as $ee_f_key => $ee_f_value) {
+    if ($ee_f_value != 0) {
+      $embedded_elements_fields_value[$ee_f_key] = $ee_f_value;
+    }
+  }
+
+  variable_set('embedded_elements_fields', json_encode($embedded_elements_fields_value));
+
 }
-
-
 
 /**
  * Implements hook_menu().
@@ -94,6 +147,5 @@ function embedded_elements_menu() {
    );
 
   return $items;
-
-
 }
+
