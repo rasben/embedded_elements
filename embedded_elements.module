@@ -2,8 +2,18 @@
 
 /**
  * @file
- * Embeds content into a CKEditor text field.
+ * Embeds content into a textarea field.
  */
+
+define('EMBEDDED_ELEMENTS_MERGECODE_START_ESC', '\[EE');
+define('EMBEDDED_ELEMENTS_MERGECODE_END_ESC', 'EE\]');
+define('EMBEDDED_ELEMENTS_SOURCES_ALLOWED', serialize([
+  'text' => t('Custom text'),
+  'templates' => t('Custom templates'),
+  'views' => t('View panes'),
+  'blocks' => t('Blocks')
+]));
+
 
 /**
  * Implements hook_wysiwyg_plugin().
@@ -36,7 +46,7 @@ function embedded_elements_admin() {
   $form = array();
 
   /*
-   * Form part 1: Content types
+   * Form part: Content types
    */
 
   // We may want to limit this function at one point,
@@ -50,14 +60,14 @@ function embedded_elements_admin() {
 
   $form['embedded_elements_contenttypes'] = array(
     '#type' => 'checkboxes',
-    '#title' => 'Allowed content types',
+    '#title' => t('Allowed content types'),
     '#default_value' => $contenttypes_currentvalue,
     '#options' => $contenttypes_allowed,
 
   );
 
   /*
-   * Form part 2: Fields
+   * Form part: Fields
    */
   $field_info_instances = field_info_instances();
 
@@ -76,8 +86,7 @@ function embedded_elements_admin() {
         if
           ((!isset($fields_allowed[$field_info_selected['field_name']])) &&
           (substr($field_info_selected['widget']['type'], 0, 13) == 'text_textarea')) {
-
-          $fields_allowed[$field_info_selected['field_name']] = $field_info_selected['field_name'];
+          $fields_allowed[$field_info_selected['field_name']] = $field_info_selected['label'];
         }
       }
     }
@@ -85,11 +94,26 @@ function embedded_elements_admin() {
 
   $form['embedded_elements_fields'] = array(
     '#type' => 'checkboxes',
-    '#title' => 'Allowed fields',
+    '#title' => t('Allowed fields'),
     '#default_value' => $fields_currentvalue,
     '#options' => $fields_allowed,
 
   );
+
+  /*
+   * Form part: Sources
+   */
+
+  $sources_allowed = unserialize(EMBEDDED_ELEMENTS_SOURCES_ALLOWED);
+  $sources_currentvalue = variable_get('embedded_elements_sources');
+
+  $form['embedded_elements_sources'] = array(
+    '#type' => 'checkboxes',
+    '#title' => t('Allowed sources'),
+    '#default_value' => $sources_currentvalue,
+    '#options' => $sources_allowed,
+  );
+
 
   return system_settings_form($form);
 }
@@ -101,7 +125,7 @@ function embedded_elements_admin() {
 function embedded_elements_admin_validate($form, &$form_state) {
 
   /*
-   * Part 1: Content types
+   * Part: Content types
    */
   $embedded_elements_contenttypes_value = [];
 
@@ -114,7 +138,7 @@ function embedded_elements_admin_validate($form, &$form_state) {
   variable_set('embedded_elements_contenttypes', json_encode($embedded_elements_contenttypes_value));
 
   /*
-   * Part 2: Fields
+   * Part: Fields
    */
   $embedded_elements_fields_value = [];
 
@@ -126,11 +150,26 @@ function embedded_elements_admin_validate($form, &$form_state) {
 
   variable_set('embedded_elements_fields', json_encode($embedded_elements_fields_value));
 
+
+  /*
+   * Part: Sources
+   */
+  $embedded_elements_sources_value = [];
+
+  foreach ($form_state['values']['embedded_elements_sources'] as $ee_s_key => $ee_s_value) {
+    if ($ee_s_value !== 0) {
+      $embedded_elements_sources_value[$ee_s_key] = $ee_s_value;
+    }
+  }
+
+  variable_set('embedded_elements_sources', json_encode($embedded_elements_sources_value));
+
+
 }
 
 /**
  * Implements hook_menu().
- * Link for configuration page.
+ * Link for configuration pages.
  */
 function embedded_elements_menu() {
   $items = array();
@@ -143,6 +182,16 @@ function embedded_elements_menu() {
     'access arguments' => array('administer embedded elements settings'),
     'type' => MENU_NORMAL_ITEM,
    );
+
+  $items['admin/settings/embedded_elements/mergecodes'] = array(
+    'title' => 'Embedded Elements mergecodes',
+    'description' => '',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('embedded_elements_mergecodes_form'),
+    'access arguments' => array('administer embedded elements mergecodes'),
+    'type' => MENU_NORMAL_ITEM,
+   );
+
 
   return $items;
 }
@@ -166,12 +215,194 @@ function embedded_elements_node_submit($node, $form, &$form_state) {
       !empty($form_state['values'][$allowed_field][LANGUAGE_NONE][0]['value'])) {
 
 
-        $raw_haystack = $form_state['values'][$allowed_field][LANGUAGE_NONE][0]['value'];
+        $haystack = $form_state['values'][$allowed_field][LANGUAGE_NONE][0]['value'];
 
-        dpm($raw_haystack);
+
+        preg_match_all('#' . EMBEDDED_ELEMENTS_MERGECODE_START_ESC . '(.*?)' . EMBEDDED_ELEMENTS_MERGECODE_END_ESC . '#', $haystack, $matches);
+
+
+
+        dpm($matches);
 
       }
     }
 
   endif; //End content type check
+}
+
+/**
+ * Implements hook_form().
+ * A form for defining different merge codes and their content.
+ */
+function embedded_elements_mergecodes_form($form,&$form_submit) {
+
+
+  $existing_mergecodes = variable_get('embedded_elements_mergecodes');
+
+  if (!is_array($existing_mergecodes)){
+    $existing_mergecodes = [];
+  }
+
+  $sources_allowed = unserialize(EMBEDDED_ELEMENTS_SOURCES_ALLOWED);
+
+  //todo
+  $templates_detected = [];
+
+  $templates_allowed = $templates_detected;
+  $views_allowed = [];
+  $blocks_allowed = [];
+
+
+  /*
+   * Form elements for existing mergecodes.
+   */
+  foreach ($existing_mergecodes as $mergecode):
+
+    if (!empty($mergecode)) {
+      $mergecode_settings = json_decode($mergecode);
+    }
+    else {
+      $mergecode_settings = [];
+    }
+
+    // This is just to show the user what's going on.
+    // It wont be used in any kind of submit.
+    $form[$mergecode]['identifier'] = array(
+      '#title' => t('Identifier'),
+      '#type' => 'textfield',
+      '#required' => TRUE,
+      '#default_value' => $mergecode,
+      '#attributes' => array('readonly' => 'readonly'),
+      '#description' => t('This code may be used in a textarea with') . ' [EE ' . $mergecode . ' EE]',
+      '#prefix' => '<h2>' . t('Existing mergecode') . ': ' . $mergecode_settings['name'] . '</h2>',
+
+    );
+
+    $form[$mergecode]['name'] = array(
+      '#title' => t('Name'),
+      '#type' => 'textfield',
+      '#required' => TRUE,
+      '#default_value' => $mergecode_settings['name']
+    );
+
+    $form[$mergecode]['embedded_elements_source'] = array(
+      '#type' => 'select',
+      '#title' => t('Source'),
+      '#default_value' => $mergecode_settings['source'],
+      '#options' => $sources_allowed,
+    );
+
+
+    // todo: Should this be a helper function? It will be used once more.
+    foreach ($sources_allowed as $source):
+
+      if ($source == 'blocks') {
+        $form[$mergecode]['embedded_elements_block'] = array(
+          '#type' => 'select',
+          '#title' => t('Block to display'),
+          '#default_value' => $mergecode_settings['block'],
+          '#options' => $blocks_allowed,
+        );
+      }
+
+      else if ($source == 'views') {
+        $form[$mergecode]['embedded_elements_view'] = array(
+          '#type' => 'select',
+          '#title' => t('Viewpane to display'),
+          '#default_value' => $mergecode_settings['view'],
+          '#options' => $views_allowed,
+        );
+      }
+
+      else if ($source == 'text') {
+        $form[$mergecode]['embedded_elements_text'] = array(
+          '#type' => 'text_format',
+          '#format' => 'full_html',
+          '#title' => t('Custom text to display'),
+          '#default_value' => $mergecode_settings['text'],
+        );
+      }
+
+      else if ($source == 'template') {
+        $form[$mergecode]['embedded_elements_template'] = array(
+          '#type' => 'select',
+          '#title' => t('Custom template to display'),
+          '#default_value' => $mergecode_settings['template'],
+          '#options' => $templates_allowed,
+          '#description' => t('Detected templates that are made for embeddeding. Put your template (.tpl.php) files in your theme folder, in the following structure: [themename]/templates/embedded_elements.')
+        );
+      }
+
+    endforeach; //Ends looping through souces_allowed
+
+  endforeach; //Ends looping through existing_mergecodes
+
+  /*
+   * Form elements for a new merge code.
+   */
+
+    $form['NEW']['identifier'] = array(
+      '#title' => t('Identifier'),
+      '#type' => 'textfield',
+      '#description' => t('This code may be used in a textarea with [EE your_merge_code EE]. Only alphanumerical characters and underscores are allowed and will automatically be converted. If you do not write anything, the system will generate the merge code for you based on the name.'),
+      '#prefix' => '<h2>' . t('Create new mergecode') . '</h2>',
+
+    );
+
+    $form['NEW']['name'] = array(
+      '#title' => t('Name'),
+      '#type' => 'textfield',
+      '#required' => TRUE,
+    );
+
+    $form['NEW']['embedded_elements_source'] = array(
+      '#type' => 'select',
+      '#title' => t('Source'),
+      '#options' => $sources_allowed,
+    );
+
+
+    foreach ($sources_allowed as $source => $source_name):
+      if ($source == 'blocks') {
+        $form['NEW']['embedded_elements_block'] = array(
+          '#type' => 'select',
+          '#title' => t('Block to display'),
+          '#options' => $blocks_allowed,
+        );
+      }
+
+      else if ($source == 'views') {
+        $form['NEW']['embedded_elements_view'] = array(
+          '#type' => 'select',
+          '#title' => t('Viewpane to display'),
+          '#options' => $views_allowed,
+        );
+      }
+
+      else if ($source == 'text') {
+        $form['NEW']['embedded_elements_text'] = array(
+          '#type' => 'textarea',
+          '#title' => t('Custom text to display'),
+        );
+      }
+
+      else if ($source == 'template') {
+        $form['NEW']['embedded_elements_template'] = array(
+          '#type' => 'select',
+          '#title' => 'Custom template to display',
+          '#options' => $templates_allowed,
+          '#description' => t('Detected templates that are made for embeddeding. Put your template (.tpl.php) files in your theme folder, in the following structure: [themename]/templates/embedded_elements.')
+        );
+      }
+
+    endforeach; //Ends looping through souces_allowed
+
+
+
+  $form['submit_button'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save'),
+  );
+
+  return $form;
 }
