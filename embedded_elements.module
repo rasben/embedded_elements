@@ -27,7 +27,10 @@ define('EMBEDDED_ELEMENTS_MERGECODE_SETTINGS', serialize([
  * Implements hook_wysiwyg_plugin().
  * Adding a custom CKeditor button for adding merge codes
  */
+
 /*
+ * Commented out for now, as we might not need this.
+
 function embedded_elements_wysiwyg_plugin($editor, $version) {
   switch ($editor) {
     case 'ckeditor':
@@ -36,7 +39,7 @@ function embedded_elements_wysiwyg_plugin($editor, $version) {
           'path' => drupal_get_path('module', 'embedded_elements') . '/ckeditor_plugins/',
           'filename' => 'plugin.js',
           'buttons' => array(
-            'embedElementAdd' => t('Do something awesome'),
+            'embedElementAdd' => t('Some button'),
           ),
           'load' => TRUE,
         ),
